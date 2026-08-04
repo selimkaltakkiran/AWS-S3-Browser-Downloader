@@ -1,0 +1,491 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap");
+
+:root {
+  font-family: "Manrope", "Segoe UI", sans-serif;
+  color: #1b2635;
+  background: #f5f7fa;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  border: 0;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: minmax(330px, 0.88fr) minmax(530px, 1.12fr);
+  min-height: 100vh;
+}
+
+.brand-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  padding: 57px clamp(42px, 7vw, 108px) 45px;
+  color: #f5f9ff;
+  background:
+    radial-gradient(circle at 77% 21%, rgba(47, 133, 255, 0.22), transparent 29%),
+    linear-gradient(153deg, #112235 0%, #0d1a2a 50%, #0b1624 100%);
+}
+
+.brand-panel::after {
+  position: absolute;
+  right: -120px;
+  bottom: 3%;
+  width: 390px;
+  height: 390px;
+  border: 1px solid rgba(115, 176, 255, 0.12);
+  border-radius: 50%;
+  box-shadow: 0 0 0 42px rgba(115, 176, 255, 0.025), 0 0 0 84px rgba(115, 176, 255, 0.02);
+  content: "";
+}
+
+.brand-mark {
+  position: relative;
+  z-index: 1;
+  width: 44px;
+  height: 44px;
+}
+
+.brand-mark__top,
+.brand-mark__bottom {
+  position: absolute;
+  left: 3px;
+  width: 38px;
+  height: 19px;
+  border: 4px solid #7ac5ff;
+  border-radius: 50%;
+}
+
+.brand-mark__top {
+  top: 2px;
+  border-bottom-color: transparent;
+  transform: rotate(-8deg);
+}
+
+.brand-mark__bottom {
+  top: 18px;
+  border-top-color: transparent;
+  border-color: #e4f3ff;
+  border-top-color: transparent;
+  transform: rotate(8deg);
+}
+
+.brand-copy {
+  position: relative;
+  z-index: 1;
+  max-width: 450px;
+  margin-top: auto;
+  margin-bottom: 21vh;
+}
+
+.eyebrow {
+  margin: 0 0 21px;
+  color: #76c4ff;
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.17em;
+}
+
+.brand-copy h1 {
+  max-width: 440px;
+  margin: 0;
+  color: #f6faff;
+  font-size: clamp(32px, 3.45vw, 54px);
+  font-weight: 700;
+  letter-spacing: -0.055em;
+  line-height: 1.08;
+}
+
+.brand-description {
+  max-width: 380px;
+  margin: 28px 0 0;
+  color: #9bacbf;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.brand-footer {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #8294a9;
+  font-family: "DM Mono", monospace;
+  font-size: 11px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #50dca0;
+  box-shadow: 0 0 0 4px rgba(80, 220, 160, 0.1);
+}
+
+.login-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 50px clamp(42px, 8vw, 145px) 30px clamp(50px, 8vw, 142px);
+  background: #f5f7fa;
+}
+
+.login-content {
+  width: min(100%, 490px);
+}
+
+.mobile-brand {
+  display: none;
+}
+
+.login-heading {
+  margin-bottom: 34px;
+}
+
+.eyebrow--muted {
+  margin-bottom: 14px;
+  color: #8b9aab;
+}
+
+.login-heading h2 {
+  margin: 0;
+  color: #182536;
+  font-size: clamp(27px, 3vw, 36px);
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  line-height: 1.15;
+}
+
+.login-heading p:last-child {
+  margin: 12px 0 0;
+  color: #7c8998;
+  font-size: 13px;
+}
+
+.credentials-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.field-group {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.field-group label,
+.label-row label {
+  color: #425165;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+}
+
+.label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.secure-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: #92a0ae;
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+  font-weight: 400;
+}
+
+.lock-icon {
+  color: #6c8198;
+  font-size: 15px;
+  line-height: 0;
+  transform: rotate(180deg);
+}
+
+input,
+select {
+  width: 100%;
+  height: 48px;
+  border: 1px solid #d6dee7;
+  border-radius: 7px;
+  outline: 0;
+  padding: 0 14px;
+  color: #213148;
+  background: #ffffff;
+  font-size: 13px;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+input::placeholder {
+  color: #abb6c1;
+}
+
+input:focus,
+select:focus {
+  border-color: #4399e8;
+  box-shadow: 0 0 0 3px rgba(67, 153, 232, 0.13);
+}
+
+select {
+  appearance: none;
+  padding-right: 35px;
+  background-image: linear-gradient(45deg, transparent 50%, #7a8b9e 50%), linear-gradient(135deg, #7a8b9e 50%, transparent 50%);
+  background-position: calc(100% - 17px) 20px, calc(100% - 12px) 20px;
+  background-repeat: no-repeat;
+  background-size: 5px 5px, 5px 5px;
+}
+
+.input-with-action,
+.prefix-input {
+  position: relative;
+}
+
+.input-with-action input {
+  padding-right: 58px;
+}
+
+.input-action {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  padding: 7px 8px;
+  color: #55718d;
+  background: transparent;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 700;
+  transform: translateY(-50%);
+}
+
+.input-action:hover {
+  color: #177ac7;
+}
+
+.form-row {
+  display: flex;
+  gap: 14px;
+}
+
+.field-group--region {
+  flex: 1.4;
+}
+
+.optional {
+  color: #9ba7b4;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.prefix-input > span {
+  position: absolute;
+  top: 50%;
+  left: 14px;
+  color: #8797a8;
+  font-family: "DM Mono", monospace;
+  font-size: 12px;
+  transform: translateY(-50%);
+}
+
+.prefix-input input {
+  padding-left: 54px;
+}
+
+.form-message {
+  margin: -2px 0 -2px;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.form-message--error {
+  color: #a14848;
+  background: #fff0f0;
+}
+
+.form-message--success {
+  color: #2a795a;
+  background: #eaf8f0;
+}
+
+.connect-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 50px;
+  margin-top: 4px;
+  border-radius: 7px;
+  padding: 0 17px 0 20px;
+  color: #ffffff;
+  background: #1885d1;
+  box-shadow: 0 7px 18px rgba(24, 133, 209, 0.18);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  transition: background 150ms ease, transform 150ms ease, box-shadow 150ms ease;
+}
+
+.connect-button:hover {
+  background: #0e76be;
+  box-shadow: 0 9px 21px rgba(24, 133, 209, 0.25);
+  transform: translateY(-1px);
+}
+
+.connect-button:active {
+  transform: translateY(0);
+}
+
+.arrow {
+  font-size: 21px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.permissions-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 27px 0 0;
+  color: #8794a2;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.info-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border: 1px solid #aeb9c4;
+  border-radius: 50%;
+  font-family: Georgia, serif;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.version-label {
+  margin: auto 0 0;
+  color: #a7b1bd;
+  font-family: "DM Mono", monospace;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+
+.version-label span {
+  margin: 0 5px;
+  color: #d0d7de;
+}
+
+@media (max-width: 800px) {
+  .app-shell {
+    display: block;
+  }
+
+  .brand-panel {
+    display: none;
+  }
+
+  .login-panel {
+    min-height: 100vh;
+    padding: 28px 24px;
+  }
+
+  .login-content {
+    margin: auto;
+  }
+
+  .mobile-brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 64px;
+  }
+
+  .brand-mark--small {
+    width: 33px;
+    height: 33px;
+  }
+
+  .brand-mark--small .brand-mark__top,
+  .brand-mark--small .brand-mark__bottom {
+    left: 2px;
+    width: 29px;
+    height: 15px;
+    border-width: 3px;
+  }
+
+  .brand-mark--small .brand-mark__bottom {
+    top: 14px;
+  }
+
+  .mobile-brand__name {
+    color: #213148;
+    font-size: 14px;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+
+  .version-label {
+    margin-top: 70px;
+  }
+}
+
+@media (max-width: 490px) {
+  .login-panel {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .mobile-brand {
+    margin-bottom: 45px;
+  }
+
+  .form-row {
+    flex-direction: column;
+  }
+
+  .field-group--region {
+    flex: auto;
+  }
+
+  .label-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+}
