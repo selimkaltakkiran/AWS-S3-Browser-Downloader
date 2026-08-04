@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import "./App.css";
 
@@ -9,9 +10,10 @@ type ConnectionResponse = { success: boolean; region: string; buckets: BucketSum
 type S3Entry = { key: string; name: string; kind: "folder" | "file"; size?: number; lastModified?: string };
 type ListObjectsResponse = { bucket: string; prefix: string; entries: S3Entry[] };
 type Location = { bucket: string; prefix: string };
-type DownloadStatus = "queued" | "downloading" | "completed" | "failed";
-type DownloadItem = { id: string; bucket: string; name: string; key: string; destination: string; size?: number; status: DownloadStatus; error?: string; kind?: "file" | "zip" };
-type FolderFile = { key: string; name: string; size?: number };
+type DownloadStatus = "queued" | "downloading" | "completed" | "failed" | "partial";
+type DownloadKind = "file" | "zip" | "folder";
+type DownloadItem = { id: string; bucket: string; name: string; key: string; destination: string; size?: number; status: DownloadStatus; error?: string; kind: DownloadKind; parentId?: string };
+type DownloadProgress = { jobId: string; operation: "folder" | "zip"; status: "discovered" | "downloading" | "completed" | "failed"; key: string; fileName: string; size: number; discovered: number; completed: number; error?: string };
 
 const regions = [
   ["us-east-1", "US East (N. Virginia)"], ["us-west-2", "US West (Oregon)"],
@@ -28,7 +30,7 @@ function App() {
   const [location, setLocation] = useState<Location | null>(null);
   const [entries, setEntries] = useState<S3Entry[]>([]);
   const [history, setHistory] = useState<Location[]>([]);
-  const [selectedKey, setSelectedKey] = useState("");
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [isLoadingObjects, setIsLoadingObjects] = useState(false);
   const [browserError, setBrowserError] = useState("");
   const [downloads, setDownloads] = useState<DownloadItem[]>([]);
@@ -70,7 +72,7 @@ function App() {
   async function loadLocation(next: Location) {
     setLocation(next);
     setEntries([]);
-    setIsLoadingObjects(true); setBrowserError(""); setSelectedKey("");
+    setIsLoadingObjects(true); setBrowserError(""); setSelectedKeys([]);
     try {
       const result = await invoke<ListObjectsResponse>("list_s3_objects", { request: next });
       setLocation({ bucket: result.bucket, prefix: result.prefix });
@@ -108,6 +110,14 @@ function App() {
     void loadLocation({ bucket: location.bucket, prefix: parent });
   }
 
+  function toggleSelection(key: string) {
+    setSelectedKeys((current) => current.includes(key) ? current.filter((value) => value !== key) : [...current, key]);
+  }
+
+  function toggleAllSelection() {
+    setSelectedKeys((current) => current.length === entries.length ? [] : entries.map((entry) => entry.key));
+  }
+
   function formatSize(size?: number) {
     if (size === undefined) return "—";
     if (size < 1024) return `${size} B`;
@@ -123,19 +133,41 @@ function App() {
   }
 
   function addDownload(item: Omit<DownloadItem, "id" | "status">) {
-    setDownloads((current) => [...current, { ...item, id: `${Date.now()}-${Math.random()}`, status: "queued" }]);
+    const id = `${Date.now()}-${Math.random()}`;
+    setDownloads((current) => [...current, { ...item, id, status: "queued" }]);
     setShowDownloads(true);
+    return id;
   }
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<DownloadProgress>("download-progress", ({ payload }) => {
+      setDownloads((current) => {
+        const parent = current.find((item) => item.id === payload.jobId);
+        if (!parent) return current;
+        const childId = `${payload.jobId}:${payload.key}`;
+        const childStatus: DownloadStatus = payload.status === "discovered" ? "queued" : payload.status;
+        const child = { id: childId, parentId: payload.jobId, bucket: parent.bucket, name: payload.fileName, key: payload.key, destination: parent.destination, size: payload.size, status: childStatus, error: payload.error, kind: "file" as const };
+        const childExists = current.some((item) => item.id === childId);
+        const next = childExists ? current.map((item) => item.id === childId ? { ...item, ...child } : item) : [...current, child];
+        return next.map((item) => item.id === payload.jobId && (payload.status === "discovered" || payload.status === "downloading") ? { ...item, status: "downloading" } : item);
+      });
+    }).then((stop) => { unlisten = stop; });
+    return () => { unlisten?.(); };
+  }, []);
 
   useEffect(() => {
     if (processingDownloads.current) return;
     const next = downloads.find((item) => item.status === "queued");
-    if (!next || !location) return;
+    if (!next) return;
     processingDownloads.current = true;
     setDownloads((current) => current.map((item) => item.id === next.id ? { ...item, status: "downloading" } : item));
-    const command = next.kind === "zip" ? "download_s3_folder_zip" : "download_s3_object";
-    const request = next.kind === "zip" ? { bucket: next.bucket, prefix: next.key, destination: next.destination } : { bucket: next.bucket, key: next.key, destination: next.destination };
-    void invoke(command, { request }).then(() => setDownloads((current) => current.map((item) => item.id === next.id ? { ...item, status: "completed" } : item))).catch((reason) => setDownloads((current) => current.map((item) => item.id === next.id ? { ...item, status: "failed", error: typeof reason === "string" ? reason : "Download failed." } : item))).finally(() => { processingDownloads.current = false; });
+    const command = next.kind === "zip" ? "download_s3_folder_zip" : next.kind === "folder" ? "download_s3_folder" : "download_s3_object";
+    const request = next.kind === "file" ? { bucket: next.bucket, key: next.key, destination: next.destination } : { jobId: next.id, bucket: next.bucket, prefix: next.key, destination: next.destination };
+    void invoke(command, { request }).then(() => setDownloads((current) => {
+      const hasFailures = current.some((item) => item.parentId === next.id && item.status === "failed");
+      return current.map((item) => item.id === next.id ? { ...item, status: hasFailures ? "partial" : "completed" } : item);
+    })).catch((reason) => setDownloads((current) => current.map((item) => item.id === next.id ? { ...item, status: "failed", error: typeof reason === "string" ? reason : "Download failed." } : item))).finally(() => { processingDownloads.current = false; });
   }, [downloads, location]);
 
   async function downloadEntry(entry: S3Entry) {
@@ -163,28 +195,68 @@ function App() {
       } else {
         const destination = await open({ directory: true, multiple: false, title: `Choose destination for ${entry.name}` });
         if (typeof destination !== "string") return;
-        const files = await invoke<FolderFile[]>("list_s3_folder_files", { request: { bucket: location.bucket, prefix: entry.key } });
-        files.forEach((file) => addDownload({ bucket: location.bucket, name: file.name, key: file.key, destination: `${destination}\\${file.name}`, size: file.size, kind: "file" }));
+        addDownload({ bucket: location.bucket, name: entry.name, key: entry.key, destination, kind: "folder" });
       }
     } catch (reason) {
       setBrowserError(typeof reason === "string" ? reason : `Unable to download folder '${entry.name}'.`);
     }
   }
 
+  async function downloadBucket(bucket: string, mode: "zip" | "folder") {
+    setBrowserError("");
+    try {
+      if (mode === "zip") {
+        const destination = await save({ defaultPath: `${bucket}.zip`, title: `Save ${bucket} as ZIP`, filters: [{ name: "ZIP archive", extensions: ["zip"] }] });
+        if (!destination) return;
+        addDownload({ bucket, name: `${bucket}.zip`, key: "", destination, kind: "zip" });
+      } else {
+        const destination = await open({ directory: true, multiple: false, title: `Choose destination for ${bucket}` });
+        if (typeof destination !== "string") return;
+        addDownload({ bucket, name: bucket, key: "", destination, kind: "folder" });
+      }
+    } catch (reason) {
+      setBrowserError(typeof reason === "string" ? reason : `Unable to download bucket '${bucket}'.`);
+    }
+  }
+
+  async function downloadSelected() {
+    if (!location || selectedKeys.length === 0) return;
+    setBrowserError("");
+    try {
+      const destination = await open({ directory: true, multiple: false, title: "Choose destination for selected items" });
+      if (typeof destination !== "string") return;
+      entries.filter((entry) => selectedKeys.includes(entry.key)).forEach((entry) => {
+        if (entry.kind === "folder") {
+          addDownload({ bucket: location.bucket, name: entry.name, key: entry.key, destination, kind: "folder" });
+        } else {
+          const fileDestination = `${destination.replace(/[\\/]+$/, "")}\\${entry.name}`;
+          addDownload({ bucket: location.bucket, name: entry.name, key: entry.key, destination: fileDestination, size: entry.size, kind: "file" });
+        }
+      });
+      setSelectedKeys([]);
+    } catch (reason) {
+      setBrowserError(typeof reason === "string" ? reason : "Unable to choose a destination for the selected items.");
+    }
+  }
+
   function renderDownloads() {
-    return <div className="downloads-view"><div className="downloads-heading"><div><p className="eyebrow eyebrow--muted">DOWNLOADS</p><h2>Download queue</h2><p>Files are downloaded one at a time, in this order.</p></div><button className="secondary-button" type="button" onClick={() => setShowDownloads(false)}>Back to browser</button></div>{downloads.length === 0 ? <p className="empty-state">No downloads yet.</p> : <div className="download-queue" aria-live="polite">{downloads.map((item, index) => <div className={`download-row download-row--${item.status}`} key={item.id}><span className="download-order">{index + 1}</span><span className="download-file"><strong>{item.name}</strong><small>{item.destination}</small></span><span className="download-status">{item.status === "downloading" && <span className="loading-dot" aria-hidden="true" />}{item.status === "downloading" ? "Downloading…" : item.status === "completed" ? "Completed" : item.status === "failed" ? "Failed" : "Queued"}{item.error && <small>{item.error}</small>}</span></div>)}</div>}</div>;
+    const parents = downloads.filter((item) => !item.parentId);
+    const statusLabel = (status: DownloadStatus) => status === "downloading" ? "Downloading…" : status === "completed" ? "Completed" : status === "partial" ? "Partial" : status === "failed" ? "Failed" : "Queued";
+    return <div className="downloads-view"><div className="downloads-heading"><div><p className="eyebrow eyebrow--muted">DOWNLOADS</p><h2>Download queue</h2><p>Files are downloaded one at a time, in this order.</p></div><button className="secondary-button" type="button" onClick={() => setShowDownloads(false)}>Back to browser</button></div>{downloads.length === 0 ? <p className="empty-state">No downloads yet.</p> : <div className="download-queue" aria-live="polite">{parents.map((item, index) => <div className="download-group" key={item.id}><div className={`download-row download-row--parent download-row--${item.status}`}><span className="download-order">{index + 1}</span><span className="download-file"><strong>{item.name}</strong><small>{item.destination}</small></span><span className="download-status">{item.status === "downloading" && <span className="loading-dot" aria-hidden="true" />}{statusLabel(item.status)}{item.error && <small>{item.error}</small>}</span></div>{downloads.filter((child) => child.parentId === item.id).map((child) => <div className={`download-row download-row--child download-row--${child.status}`} key={child.id}><span className="download-order">↳</span><span className="download-file"><strong>{child.name}</strong><small>{child.size ? formatSize(child.size) : ""}</small></span><span className="download-status">{child.status === "downloading" && <span className="loading-dot" aria-hidden="true" />}{statusLabel(child.status)}{child.error && <small>{child.error}</small>}</span></div>)}</div>)}</div>}</div>;
   }
 
   if (connection) {
     if (showDownloads) return <main className="app-shell app-shell--connected"><section className="connected-panel"><button className="downloads-button" type="button" onClick={() => setShowDownloads(false)}>Back to browser</button>{renderDownloads()}</section></main>;
     return <main className="app-shell app-shell--connected"><section className="connected-panel"><button className="downloads-button" type="button" onClick={() => setShowDownloads(true)}>Downloads <span>{downloads.filter((item) => item.status === "queued" || item.status === "downloading").length}</span></button>
       {!location ? <><div className="connected-header"><div><p className="eyebrow eyebrow--muted">CONNECTED</p><h2>Your Amazon S3 buckets</h2><p>Connection verified in {connection.region}.</p></div><button className="secondary-button" type="button" onClick={() => setConnection(null)}>Edit connection</button></div>
-      <div className="bucket-list" aria-live="polite">{connection.buckets.length === 0 ? <p className="empty-state">No buckets were returned for this account.</p> : connection.buckets.map((bucket) => <button className="bucket-row" key={bucket.name} type="button" onClick={() => openBucket(bucket.name)}><span className="bucket-icon" aria-hidden="true">▱</span><span>{bucket.name}</span><span className="row-chevron" aria-hidden="true">›</span></button>)}</div>
+      {browserError && <p className="form-message form-message--error">{browserError}</p>}
+      <div className="bucket-list" aria-live="polite">{connection.buckets.length === 0 ? <p className="empty-state">No buckets were returned for this account.</p> : connection.buckets.map((bucket) => <div className="bucket-row" key={bucket.name}><button className="bucket-main" type="button" onClick={() => openBucket(bucket.name)}><span className="bucket-icon" aria-hidden="true">▱</span><span>{bucket.name}</span><span className="row-chevron" aria-hidden="true">›</span></button><span className="download-actions"><button className="download-button" type="button" onClick={() => void downloadBucket(bucket.name, "zip")}>Download ZIP</button><button className="download-button" type="button" onClick={() => void downloadBucket(bucket.name, "folder")}>Extract</button></span></div>)}</div>
       <p className="permissions-note">Select a bucket to browse its folders and files.</p></> : <>
         <div className="browser-toolbar"><div className="browser-actions"><button className="icon-button" type="button" onClick={goBack} disabled={!history.length} aria-label="Back" title="Back">←</button><button className="icon-button" type="button" onClick={goUp} disabled={!location.prefix} aria-label="Go to upper directory" title="Go to upper directory">↑</button></div><button className="secondary-button" type="button" onClick={() => { setLocation(null); setHistory([]); }}>All buckets</button></div>
         <div className="browser-heading"><p className="eyebrow eyebrow--muted">BUCKET</p><h2>{location.bucket}</h2><p className="breadcrumb">s3://{location.bucket}/{location.prefix}</p></div>
+        <div className="selection-toolbar"><span>{selectedKeys.length ? `${selectedKeys.length} selected` : "Select files and folders to download together."}</span><div><button className="secondary-button" type="button" onClick={toggleAllSelection} disabled={!entries.length}>{selectedKeys.length === entries.length && entries.length > 0 ? "Clear selection" : "Select all"}</button><button className="download-button download-button--bulk" type="button" onClick={() => void downloadSelected()} disabled={!selectedKeys.length}>Download selected ({selectedKeys.length})</button></div></div>
         {browserError && <p className="form-message form-message--error">{browserError}</p>}
-        <div className="object-table" aria-live="polite"><div className="object-row object-row--header"><span>Name</span><span>Type</span><span>Size</span><span>Modified</span><span>Actions</span></div>{isLoadingObjects ? <p className="empty-state">Loading objects…</p> : entries.length === 0 ? <p className="empty-state">This directory is empty.</p> : entries.map((entry) => <button className={`object-row ${selectedKey === entry.key ? "object-row--selected" : ""}`} key={entry.key} type="button" onClick={() => entry.kind === "folder" ? openFolder(entry) : setSelectedKey(entry.key)}><span className="object-name"><span className="object-icon" aria-hidden="true">{entry.kind === "folder" ? "▰" : "□"}</span>{entry.name}</span><span>{entry.kind === "folder" ? "Folder" : "File"}</span><span>{formatSize(entry.size)}</span><span>{formatDate(entry.lastModified)}</span><span>{entry.kind === "folder" ? <span className="download-actions"><button className="download-button" type="button" disabled={Boolean(downloadingKey || downloadingFolderKey)} onClick={(event) => { event.stopPropagation(); void downloadFolder(entry, "zip"); }}>{downloadingFolderKey === entry.key ? "Downloading…" : "Download ZIP"}</button><button className="download-button" type="button" disabled={Boolean(downloadingKey || downloadingFolderKey)} onClick={(event) => { event.stopPropagation(); void downloadFolder(entry, "folder"); }}>Extract</button></span> : <button className="download-button" type="button" disabled={Boolean(downloadingKey || downloadingFolderKey)} onClick={(event) => { event.stopPropagation(); void downloadEntry(entry); }}>{downloadingKey === entry.key ? "Downloading…" : "Download"}</button>}</span></button>)}</div>
+        <div className="object-table" aria-live="polite"><div className="object-row object-row--header"><span>Select</span><span>Name</span><span>Type</span><span>Size</span><span>Modified</span><span>Actions</span></div>{isLoadingObjects ? <p className="empty-state">Loading objects…</p> : entries.length === 0 ? <p className="empty-state">This directory is empty.</p> : entries.map((entry) => <div className={`object-row ${selectedKeys.includes(entry.key) ? "object-row--selected" : ""}`} key={entry.key} onClick={() => toggleSelection(entry.key)}><input className="object-select" type="checkbox" checked={selectedKeys.includes(entry.key)} onChange={() => toggleSelection(entry.key)} onClick={(event) => event.stopPropagation()} aria-label={`Select ${entry.name}`} /><span className="object-name" onDoubleClick={() => entry.kind === "folder" && openFolder(entry)} title={entry.kind === "folder" ? "Double-click to open" : undefined}><span className="object-icon" aria-hidden="true">{entry.kind === "folder" ? "▰" : "□"}</span>{entry.name}</span><span>{entry.kind === "folder" ? "Folder" : "File"}</span><span>{formatSize(entry.size)}</span><span>{formatDate(entry.lastModified)}</span><span>{entry.kind === "folder" ? <span className="download-actions"><button className="download-button" type="button" disabled={Boolean(downloadingKey || downloadingFolderKey)} onClick={(event) => { event.stopPropagation(); void downloadFolder(entry, "zip"); }}>{downloadingFolderKey === entry.key ? "Downloading…" : "Download ZIP"}</button><button className="download-button" type="button" disabled={Boolean(downloadingKey || downloadingFolderKey)} onClick={(event) => { event.stopPropagation(); void downloadFolder(entry, "folder"); }}>Extract</button></span> : <button className="download-button" type="button" disabled={Boolean(downloadingKey || downloadingFolderKey)} onClick={(event) => { event.stopPropagation(); void downloadEntry(entry); }}>{downloadingKey === entry.key ? "Downloading…" : "Download"}</button>}</span></div>)}</div>
       </>}
     </section></main>;
   }
